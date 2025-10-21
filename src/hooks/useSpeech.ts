@@ -7,11 +7,12 @@ type RecognitionCtor = any; // webkitSpeechRecognition | SpeechRecognition
 export function useSpeechRecognition() {
   const SpeechRecognition: RecognitionCtor =
     typeof window !== "undefined"
-      ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+      ? (window as any).SpeechRecognition ||
+        (window as any).webkitSpeechRecognition
       : undefined;
 
   const supported = Boolean(SpeechRecognition);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<RecognitionCtor>(null);
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
@@ -102,7 +103,16 @@ export function useSpeechRecognition() {
     setInterimTranscript("");
   }, []);
 
-  return { supported, listening, transcript, interimTranscript, start, stop, abort, reset };
+  return {
+    supported,
+    listening,
+    transcript,
+    interimTranscript,
+    start,
+    stop,
+    abort,
+    reset,
+  };
 }
 
 export function speak(text: string) {
@@ -115,8 +125,10 @@ export function speak(text: string) {
   utter.pitch = 1;
   const voices = synth.getVoices();
   const enVoice =
-    voices.find((v) => v.lang?.startsWith?.("en") && v.name?.toLowerCase?.().includes("female")) ||
-    voices.find((v) => v.lang?.startsWith?.("en"));
+    voices.find(
+      (v) =>
+        v.lang?.startsWith?.("en") && v.name?.toLowerCase?.().includes("female")
+    ) || voices.find((v) => v.lang?.startsWith?.("en"));
   if (enVoice) utter.voice = enVoice;
   // Avoid overlapping speech
   if (synth.speaking) synth.cancel();

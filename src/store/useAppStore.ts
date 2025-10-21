@@ -17,6 +17,7 @@ type AppState = {
   addMessage: (m: Message) => void
   setIPA: (d?: { ipa: IPAItem[], tips?: string }) => void
   incTurns: () => void
+  clearConversation: () => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -32,4 +33,5 @@ export const useAppStore = create<AppState>((set) => ({
   addMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
   setIPA: (d) => set({ ipa: d }),
   incTurns: () => set((s) => ({ turns: s.turns + 1 })),
+  clearConversation: () => set({ messages: [{ role: 'assistant', content: "Đã xóa hội thoại. Bắt đầu lại nhé!" }], ipa: undefined, turns: 0 }),
 }))

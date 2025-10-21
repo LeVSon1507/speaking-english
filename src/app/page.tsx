@@ -36,14 +36,13 @@ export default function Home() {
         <h2 className="font-bold mb-2">Speaking</h2>
         <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
           {lessons.map((l) => (
-            <Link key={l.id} href="/speaking" className="block">
-              <LessonCard
-                id={l.id}
-                title={l.title}
-                description={l.description}
-                image={l.image}
-              />
-            </Link>
+            <LessonCard
+              key={l.id}
+              id={l.id}
+              title={l.title}
+              description={l.description}
+              image={l.image}
+            />
           ))}
         </div>
       </section>
