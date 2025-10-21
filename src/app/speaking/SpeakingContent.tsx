@@ -24,6 +24,8 @@ export default function SpeakingContent() {
   const [loading, setLoading] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [retryAction, setRetryAction] = useState<RetryAction | null>(null);
+  const [bookmarked, setBookmarked] = useState(false);
+  const [savedValues, setSavedValues] = useState<Set<string>>(new Set());
 
   const topic = params.get("topic") || "Chào hỏi và giới thiệu bản thân";
 
@@ -31,13 +33,23 @@ export default function SpeakingContent() {
     try {
       const raw = localStorage.getItem("my_vocab");
       const list = raw ? JSON.parse(raw) : [];
-      const exists = list.some((t: string) => t === topic);
-      if (!exists) {
-        const next = [topic, ...list].slice(0, 100);
-        localStorage.setItem("my_vocab", JSON.stringify(next));
-      }
+      setBookmarked(list.some((t: string) => t === topic));
     } catch {}
   }, [topic]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch("/api/saved", { signal: controller.signal });
+        if (res.status === 401) return; // sẽ mở login khi cần lúc click
+        const data = await res.json();
+        const vals = new Set<string>((data?.items || []).map((it: { value: string }) => it.value));
+        setSavedValues(vals);
+      } catch {}
+    })();
+    return () => controller.abort();
+  }, []);
 
   const speakText = (text: string) => {
     try {
@@ -55,6 +67,7 @@ export default function SpeakingContent() {
   };
 
   const handleBookmark = async () => {
+    if (bookmarked) return; // tránh duplicate
     try {
       const res = await fetch("/api/bookmarks", {
         method: "POST",
@@ -68,15 +81,14 @@ export default function SpeakingContent() {
       }
       const raw = localStorage.getItem("my_vocab");
       const list = raw ? JSON.parse(raw) : [];
-      const next = [topic, ...list.filter((t: string) => t !== topic)].slice(
-        0,
-        100
-      );
+      const next = [topic, ...list.filter((t: string) => t !== topic)].slice(0, 100);
       localStorage.setItem("my_vocab", JSON.stringify(next));
+      setBookmarked(true);
     } catch {}
   };
 
   const handleSave = async (value: string, kind: string = "phrase") => {
+    if (savedValues.has(value)) return; // tránh duplicate
     try {
       const res = await fetch("/api/saved", {
         method: "POST",
@@ -88,6 +100,11 @@ export default function SpeakingContent() {
         setShowLogin(true);
         return;
       }
+      setSavedValues((prev) => {
+        const next = new Set(prev);
+        next.add(value);
+        return next;
+      });
     } catch {}
   };
 
@@ -140,6 +157,13 @@ export default function SpeakingContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic: retryAction.payload }),
       });
+      try {
+        const raw = localStorage.getItem("my_vocab");
+        const list = raw ? JSON.parse(raw) : [];
+        const next = [topic, ...list.filter((t: string) => t !== topic)].slice(0, 100);
+        localStorage.setItem("my_vocab", JSON.stringify(next));
+      } catch {}
+      setBookmarked(true);
     } else if (retryAction.type === "history") {
       const { text, reply } = retryAction.payload || {};
       void fetch("/api/history", {
@@ -153,6 +177,11 @@ export default function SpeakingContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value, kind }),
+      });
+      setSavedValues((prev) => {
+        const next = new Set(prev);
+        next.add(value);
+        return next;
       });
     }
     setRetryAction(null);
@@ -206,9 +235,16 @@ export default function SpeakingContent() {
             </button>
             <button
               onClick={handleBookmark}
-              className="px-3 h-8 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-xs transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
+              disabled={bookmarked}
+              title={bookmarked ? "Đã bookmark" : "Bookmark"}
+              className={`px-3 h-8 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-xs transition-transform duration-200 ${bookmarked ? "opacity-60 cursor-not-allowed" : "hover:scale-[1.05] active:translate-y-px"}`}
             >
-              <Bookmark className="h-4 w-4 inline mr-1" /> Bookmark
+              {bookmarked ? (
+                <Bookmark className="h-4 w-4 inline mr-1" />
+              ) : (
+                <BookmarkPlus className="h-4 w-4 inline mr-1" />
+              )}
+              {bookmarked ? "Bookmarked" : "Bookmark"}
             </button>
           </div>
         </div>
@@ -249,10 +285,15 @@ export default function SpeakingContent() {
                     </button>
                     <button
                       onClick={() => handleSave(m.content, m.role === "assistant" ? "phrase" : "user")}
-                      className="h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[3px_3px_0px_#00000012] transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
-                      title="Lưu"
+                      disabled={savedValues.has(m.content)}
+                      className={`h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[3px_3px_0px_#00000012] transition-transform duration-200 ${savedValues.has(m.content) ? "opacity-60 cursor-not-allowed" : "hover:scale-[1.05] active:translate-y-px"}`}
+                      title={savedValues.has(m.content) ? "Đã lưu" : "Lưu"}
                     >
-                      <BookmarkPlus className="h-4 w-4" />
+                      {savedValues.has(m.content) ? (
+                        <Bookmark className="h-4 w-4" />
+                      ) : (
+                        <BookmarkPlus className="h-4 w-4" />
+                      )}
                     </button>
                   </div>
 
