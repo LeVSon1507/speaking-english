@@ -16,7 +16,7 @@ type RetryAction =
 export default function SpeakingContent() {
   const router = useRouter();
   const params = useSearchParams();
-  const { supported, listening, transcript, interimTranscript, start, stop } =
+  const { listening, transcript, interimTranscript, start, stop } =
     useSpeechRecognition();
   const { messages, clearConversation, addMessage, setIPA, ipa } =
     useAppStore();
@@ -44,7 +44,9 @@ export default function SpeakingContent() {
         const res = await fetch("/api/saved", { signal: controller.signal });
         if (res.status === 401) return; // sẽ mở login khi cần lúc click
         const data = await res.json();
-        const vals = new Set<string>((data?.items || []).map((it: { value: string }) => it.value));
+        const vals = new Set<string>(
+          (data?.items || []).map((it: { value: string }) => it.value)
+        );
         setSavedValues(vals);
       } catch {}
     })();
@@ -81,7 +83,10 @@ export default function SpeakingContent() {
       }
       const raw = localStorage.getItem("my_vocab");
       const list = raw ? JSON.parse(raw) : [];
-      const next = [topic, ...list.filter((t: string) => t !== topic)].slice(0, 100);
+      const next = [topic, ...list.filter((t: string) => t !== topic)].slice(
+        0,
+        100
+      );
       localStorage.setItem("my_vocab", JSON.stringify(next));
       setBookmarked(true);
     } catch {}
@@ -160,7 +165,10 @@ export default function SpeakingContent() {
       try {
         const raw = localStorage.getItem("my_vocab");
         const list = raw ? JSON.parse(raw) : [];
-        const next = [topic, ...list.filter((t: string) => t !== topic)].slice(0, 100);
+        const next = [topic, ...list.filter((t: string) => t !== topic)].slice(
+          0,
+          100
+        );
         localStorage.setItem("my_vocab", JSON.stringify(next));
       } catch {}
       setBookmarked(true);
@@ -207,7 +215,7 @@ export default function SpeakingContent() {
         </div>
         <button
           onClick={() => clearConversation()}
-          className="px-3 h-9 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-sm transition-colors transition-transform duration-200 hover:bg-neutral-50 hover:scale-[1.02] active:translate-y-px"
+          className="px-3 h-9 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-sm transition-colors duration-200 hover:bg-neutral-50 hover:scale-[1.02] active:translate-y-px"
         >
           Clear conversation
         </button>
@@ -237,7 +245,11 @@ export default function SpeakingContent() {
               onClick={handleBookmark}
               disabled={bookmarked}
               title={bookmarked ? "Đã bookmark" : "Bookmark"}
-              className={`px-3 h-8 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-xs transition-transform duration-200 ${bookmarked ? "opacity-60 cursor-not-allowed" : "hover:scale-[1.05] active:translate-y-px"}`}
+              className={`px-3 h-8 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-xs transition-transform duration-200 ${
+                bookmarked
+                  ? "opacity-60 cursor-not-allowed"
+                  : "hover:scale-[1.05] active:translate-y-px"
+              }`}
             >
               {bookmarked ? (
                 <Bookmark className="h-4 w-4 inline mr-1" />
@@ -284,9 +296,18 @@ export default function SpeakingContent() {
                       <Copy className="h-4 w-4" />
                     </button>
                     <button
-                      onClick={() => handleSave(m.content, m.role === "assistant" ? "phrase" : "user")}
+                      onClick={() =>
+                        handleSave(
+                          m.content,
+                          m.role === "assistant" ? "phrase" : "user"
+                        )
+                      }
                       disabled={savedValues.has(m.content)}
-                      className={`h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[3px_3px_0px_#00000012] transition-transform duration-200 ${savedValues.has(m.content) ? "opacity-60 cursor-not-allowed" : "hover:scale-[1.05] active:translate-y-px"}`}
+                      className={`h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[3px_3px_0px_#00000012] transition-transform duration-200 ${
+                        savedValues.has(m.content)
+                          ? "opacity-60 cursor-not-allowed"
+                          : "hover:scale-[1.05] active:translate-y-px"
+                      }`}
                       title={savedValues.has(m.content) ? "Đã lưu" : "Lưu"}
                     >
                       {savedValues.has(m.content) ? (
