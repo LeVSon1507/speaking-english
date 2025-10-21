@@ -32,7 +32,7 @@ export default function LessonCard({
   return (
     <button
       onClick={handleClick}
-      className={`shrink-0 w-[240px] h-[150px] rounded-2xl bg-white border border-black/10 shadow-[6px_6px_0px_#00000020] overflow-hidden text-left transition hover:shadow-[8px_8px_0px_#00000030] ${
+      className={`shrink-0 w-[240px] h-[150px] rounded-2xl bg-white border border-black/10 shadow-[6px_6px_0px_#00000020] overflow-hidden text-left transition-transform duration-200 hover:scale-[1.02] hover:shadow-[8px_8px_0px_#00000030] ${
         active ? "ring-2 ring-black" : ""
       }`}
     >
