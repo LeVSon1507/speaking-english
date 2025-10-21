@@ -17,6 +17,8 @@ export const metadata: Metadata = {
   description: "Practice speaking English with an AI assistant and IPA tips",
 };
 
+import BottomNav from "@/components/BottomNav";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -27,7 +29,8 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <div className="min-h-dvh pb-16">{children}</div>
+        <BottomNav />
       </body>
     </html>
   );

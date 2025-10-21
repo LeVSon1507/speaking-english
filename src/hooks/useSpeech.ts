@@ -1,30 +1,57 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// Lightweight type helpers to avoid external libs
-type RecognitionCtor = any; // webkitSpeechRecognition | SpeechRecognition
+// Minimal Web Speech API typings to avoid 'any'
+export type RecognitionCtor = new () => SpeechRecognitionLike;
+export interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: Array<SpeechRecognitionResultLike>;
+}
+export interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  0: { transcript?: string };
+}
+export interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onspeechend: (() => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: Event) => void) | null;
+}
 
 export function useSpeechRecognition() {
-  const SpeechRecognition: RecognitionCtor =
+  const SpeechRecognitionCtor: RecognitionCtor | undefined =
     typeof window !== "undefined"
-      ? (window as any).SpeechRecognition ||
-        (window as any).webkitSpeechRecognition
+      ? (
+          (window as unknown as {
+            SpeechRecognition?: RecognitionCtor;
+            webkitSpeechRecognition?: RecognitionCtor;
+          }).SpeechRecognition ||
+          (window as unknown as {
+            SpeechRecognition?: RecognitionCtor;
+            webkitSpeechRecognition?: RecognitionCtor;
+          }).webkitSpeechRecognition
+        )
       : undefined;
 
-  const supported = Boolean(SpeechRecognition);
-  const recognitionRef = useRef<RecognitionCtor>(null);
+  const supported = Boolean(SpeechRecognitionCtor);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
 
   useEffect(() => {
-    if (!supported) return;
-    const rec = new SpeechRecognition();
+    if (!supported || !SpeechRecognitionCtor) return;
+    const rec = new SpeechRecognitionCtor();
     rec.lang = "en-US";
     rec.continuous = false; // auto-stop after a pause
     rec.interimResults = true; // show live text while speaking
 
-    rec.onresult = (e: any) => {
+    rec.onresult = (e: SpeechRecognitionEventLike) => {
       let interim = "";
       let finalText = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -66,7 +93,7 @@ export function useSpeechRecognition() {
       rec.onerror = null;
       rec.onspeechend = null;
     };
-  }, [SpeechRecognition, supported]);
+  }, [SpeechRecognitionCtor, supported]);
 
   const start = useCallback(() => {
     if (!supported || !recognitionRef.current) return;

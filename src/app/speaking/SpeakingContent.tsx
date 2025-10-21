@@ -1,11 +1,17 @@
 "use client";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Bookmark, Volume2 } from "lucide-react";
+import { Copy, Bookmark, Volume2, BookmarkPlus } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 import { useSearchParams, useRouter } from "next/navigation";
 import MicButton from "@/components/MicButton";
 import { useSpeechRecognition } from "@/hooks/useSpeech";
+import LoginPrompt from "@/components/LoginPrompt";
+
+type RetryAction =
+  | { type: "bookmark"; payload: string }
+  | { type: "history"; payload: { text: string; reply: string } }
+  | { type: "saved"; payload: { value: string; kind: string } };
 
 export default function SpeakingContent() {
   const router = useRouter();
@@ -16,6 +22,8 @@ export default function SpeakingContent() {
     useAppStore();
 
   const [loading, setLoading] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
+  const [retryAction, setRetryAction] = useState<RetryAction | null>(null);
 
   const topic = params.get("topic") || "Chào hỏi và giới thiệu bản thân";
 
@@ -46,8 +54,18 @@ export default function SpeakingContent() {
     } catch {}
   };
 
-  const handleBookmark = () => {
+  const handleBookmark = async () => {
     try {
+      const res = await fetch("/api/bookmarks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic }),
+      });
+      if (res.status === 401) {
+        setRetryAction({ type: "bookmark", payload: topic });
+        setShowLogin(true);
+        return;
+      }
       const raw = localStorage.getItem("my_vocab");
       const list = raw ? JSON.parse(raw) : [];
       const next = [topic, ...list.filter((t: string) => t !== topic)].slice(
@@ -55,6 +73,21 @@ export default function SpeakingContent() {
         100
       );
       localStorage.setItem("my_vocab", JSON.stringify(next));
+    } catch {}
+  };
+
+  const handleSave = async (value: string, kind: string = "phrase") => {
+    try {
+      const res = await fetch("/api/saved", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value, kind }),
+      });
+      if (res.status === 401) {
+        setRetryAction({ type: "saved", payload: { value, kind } });
+        setShowLogin(true);
+        return;
+      }
     } catch {}
   };
 
@@ -77,6 +110,18 @@ export default function SpeakingContent() {
       const reply = data.reply || "Okay.";
       addMessage({ role: "assistant", content: reply });
       setIPA({ ipa: data.ipa || [], tips: data.tips });
+
+      try {
+        const hres = await fetch("/api/history", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userText: text, replyText: reply }),
+        });
+        if (hres.status === 401) {
+          setRetryAction({ type: "history", payload: { text, reply } });
+          setShowLogin(true);
+        }
+      } catch {}
     } catch (e) {
       addMessage({
         role: "assistant",
@@ -85,6 +130,32 @@ export default function SpeakingContent() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleLoginSuccess() {
+    if (!retryAction) return;
+    if (retryAction.type === "bookmark") {
+      void fetch("/api/bookmarks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: retryAction.payload }),
+      });
+    } else if (retryAction.type === "history") {
+      const { text, reply } = retryAction.payload || {};
+      void fetch("/api/history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userText: text, replyText: reply }),
+      });
+    } else if (retryAction.type === "saved") {
+      const { value, kind } = retryAction.payload;
+      void fetch("/api/saved", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value, kind }),
+      });
+    }
+    setRetryAction(null);
   }
 
   const heroTitle = useMemo(() => {
@@ -98,7 +169,7 @@ export default function SpeakingContent() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push("/")}
-            className="h-9 w-9 grid place-items-center rounded-full border border-black/10 bg-white shadow-[4px_4px_0px_#00000015] transition-transform duration-200 hover:scale-[1.05] active:translate-y-[1px]"
+            className="h-9 w-9 grid place-items-center rounded-full border border-black/10 bg-white shadow-[4px_4px_0px_#00000015] transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
             title="Trở về Trang chủ"
           >
             <span className="text-lg">◀</span>
@@ -107,7 +178,7 @@ export default function SpeakingContent() {
         </div>
         <button
           onClick={() => clearConversation()}
-          className="px-3 h-9 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-sm transition-colors transition-transform duration-200 hover:bg-neutral-50 hover:scale-[1.02] active:translate-y-[1px]"
+          className="px-3 h-9 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-sm transition-colors transition-transform duration-200 hover:bg-neutral-50 hover:scale-[1.02] active:translate-y-px"
         >
           Clear conversation
         </button>
@@ -128,14 +199,14 @@ export default function SpeakingContent() {
           <div className="mt-2 flex items-center gap-2">
             <button
               onClick={() => speakText(heroTitle)}
-              className="h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[4px_4px_0px_#00000015] transition-transform duration-200 hover:scale-[1.05] active:translate-y-[1px]"
+              className="h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[4px_4px_0px_#00000015] transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
               title="Đọc to"
             >
               <Volume2 className="h-4 w-4" />
             </button>
             <button
               onClick={handleBookmark}
-              className="px-3 h-8 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-xs transition-transform duration-200 hover:scale-[1.05] active:translate-y-[1px]"
+              className="px-3 h-8 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-xs transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
             >
               <Bookmark className="h-4 w-4 inline mr-1" /> Bookmark
             </button>
@@ -164,17 +235,24 @@ export default function SpeakingContent() {
                   <div className="shrink-0 flex gap-2">
                     <button
                       onClick={() => speakText(m.content)}
-                      className="h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[3px_3px_0px_#00000012] transition-transform duration-200 hover:scale-[1.05] active:translate-y-[1px]"
+                      className="h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[3px_3px_0px_#00000012] transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
                       title="Đọc to"
                     >
                       <Volume2 className="h-4 w-4" />
                     </button>
                     <button
                       onClick={() => handleCopy(m.content)}
-                      className="h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[3px_3px_0px_#00000012] transition-transform duration-200 hover:scale-[1.05] active:translate-y-[1px]"
+                      className="h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[3px_3px_0px_#00000012] transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
                       title="Copy"
                     >
                       <Copy className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleSave(m.content, m.role === "assistant" ? "phrase" : "user")}
+                      className="h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[3px_3px_0px_#00000012] transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
+                      title="Lưu"
+                    >
+                      <BookmarkPlus className="h-4 w-4" />
                     </button>
                   </div>
 
@@ -233,6 +311,11 @@ export default function SpeakingContent() {
           <div className="text-xs text-neutral-500">Nhấn để nói (English)</div>
         </div>
       </div>
+      <LoginPrompt
+        open={showLogin}
+        onClose={() => setShowLogin(false)}
+        onSuccess={handleLoginSuccess}
+      />
     </div>
   );
 }

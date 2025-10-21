@@ -69,12 +69,12 @@ export default function Home() {
               <div className="text-sm">Hi AI friend!</div>
             </div>
             <p className="text-xs mt-2">
-              Send a &quot;Hi&quot; message to start your chat journey with our AI
-              assistant
+              Send a &quot;Hi&quot; message to start your chat journey with our
+              AI assistant
             </p>
             <Link
               href="/speaking"
-              className="mt-3 inline-block rounded-xl bg-white border border-black/10 px-3 py-2 shadow-[4px_4px_0px_#00000020] text-sm transition-transform duration-200 hover:scale-[1.02] active:translate-y-[1px]"
+              className="mt-3 inline-block rounded-xl bg-white border border-black/10 px-3 py-2 shadow-[4px_4px_0px_#00000020] text-sm transition-transform duration-200 hover:scale-[1.02] active:translate-y-px"
             >
               Start
             </Link>
