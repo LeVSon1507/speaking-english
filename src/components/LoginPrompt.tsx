@@ -27,13 +27,13 @@ export default function LoginPrompt({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data?.error || "Đăng nhập thất bại");
+        setError(data?.error || "Login failed");
         return;
       }
       onSuccess();
       onClose();
-    } catch (e) {
-      setError("Lỗi mạng");
+    } catch {
+      setError("Network error");
     } finally {
       setLoading(false);
     }
@@ -42,8 +42,8 @@ export default function LoginPrompt({
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/30">
       <div className="w-[360px] rounded-2xl bg-white border border-black/10 shadow-[6px_6px_0px_#00000018] p-4">
-        <div className="text-lg font-semibold">Đăng nhập để lưu dữ liệu</div>
-        <div className="text-sm text-neutral-600">Nhập email để tạo / truy cập tài khoản.</div>
+        <div className="text-lg font-semibold">Sign in to save data</div>
+        <div className="text-sm text-neutral-600">Enter your email to create/access your account.</div>
 
         <div className="mt-3">
           <input
@@ -65,13 +65,13 @@ export default function LoginPrompt({
             disabled={loading || !email}
             className="px-4 h-9 rounded-full bg-[#f6d184] border border-black/10 shadow-[4px_4px_0px_#00000015] text-sm disabled:opacity-60"
           >
-            {loading ? "Đang xử lý..." : "Đăng nhập"}
+            {loading ? "Processing..." : "Sign in"}
           </button>
           <button
             onClick={onClose}
             className="px-3 h-9 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-sm"
           >
-            Đóng
+            Close
           </button>
         </div>
       </div>

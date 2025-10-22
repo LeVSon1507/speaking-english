@@ -23,7 +23,7 @@ export async function GET() {
       email: user.email,
       createdAt: user.createdAt,
     });
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

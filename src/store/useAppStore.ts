@@ -1,7 +1,7 @@
 "use client"
 import { create } from 'zustand'
 
-export type Message = { role: 'assistant' | 'user', content: string }
+export type Message = { role: 'assistant' | 'user', content: string, ipaData?: { ipa: IPAItem[], tips?: string } }
 export type IPAItem = { word: string, ipa: string }
 
 type AppState = {
@@ -24,7 +24,7 @@ export const useAppStore = create<AppState>((set) => ({
   provider: 'openai',
   apiKey: '',
   model: 'gpt-4o-mini',
-  messages: [{ role: 'assistant', content: "Xin chào! Tap mic để nói. Tôi sẽ gợi mở và góp ý IPA." }],
+  messages: [{ role: 'assistant', content: "Hello! Tap the mic to speak. I will prompt and give IPA tips." }],
   ipa: undefined,
   turns: 0,
   setProvider: (p) => set({ provider: p }),
@@ -33,5 +33,5 @@ export const useAppStore = create<AppState>((set) => ({
   addMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
   setIPA: (d) => set({ ipa: d }),
   incTurns: () => set((s) => ({ turns: s.turns + 1 })),
-  clearConversation: () => set({ messages: [{ role: 'assistant', content: "Đã xóa hội thoại. Bắt đầu lại nhé!" }], ipa: undefined, turns: 0 }),
+  clearConversation: () => set({ messages: [{ role: 'assistant', content: "Conversation cleared. Let's start again!" }], ipa: undefined, turns: 0 }),
 }))

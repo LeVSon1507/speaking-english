@@ -36,7 +36,7 @@ export default function BookmarksPage() {
       <h1 className="text-2xl font-semibold">Bookmarks</h1>
       <div className="mt-4 space-y-3">
         {items.length === 0 ? (
-          <div className="text-sm text-neutral-600">Chưa có bookmark.</div>
+          <div className="text-sm text-neutral-600">No bookmarks yet.</div>
         ) : (
           items.map((b, idx) => (
             <div key={idx} className="p-3 rounded-xl border">

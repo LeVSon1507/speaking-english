@@ -1,6 +1,6 @@
 "use client";
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { Copy, Bookmark, Volume2, BookmarkPlus } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -16,18 +16,30 @@ type RetryAction =
 export default function SpeakingContent() {
   const router = useRouter();
   const params = useSearchParams();
-  const { listening, transcript, interimTranscript, start, stop } =
-    useSpeechRecognition();
-  const { messages, clearConversation, addMessage, setIPA, ipa } =
-    useAppStore();
+  const {
+    supported,
+    listening,
+    transcript,
+    interimTranscript,
+    start,
+    stop,
+    silenceMs,
+  } = useSpeechRecognition();
+  const { messages, clearConversation, addMessage } = useAppStore();
 
   const [loading, setLoading] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [retryAction, setRetryAction] = useState<RetryAction | null>(null);
   const [bookmarked, setBookmarked] = useState(false);
   const [savedValues, setSavedValues] = useState<Set<string>>(new Set());
+  const [autoSpeak, setAutoSpeak] = useState(true);
+  const [voiceLang, setVoiceLang] = useState<"en-US" | "en-GB">("en-US");
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [micMode, setMicMode] = useState<"hold" | "toggle">("hold");
+  const lastSpokenRef = useRef<string | null>(null);
+  const chatControllerRef = useRef<AbortController | null>(null);
 
-  const topic = params.get("topic") || "Chào hỏi và giới thiệu bản thân";
+  const topic = params.get("topic") || "Greetings and self-introduction";
 
   useEffect(() => {
     try {
@@ -42,7 +54,7 @@ export default function SpeakingContent() {
     (async () => {
       try {
         const res = await fetch("/api/saved", { signal: controller.signal });
-        if (res.status === 401) return; // sẽ mở login khi cần lúc click
+        if (res.status === 401) return;
         const data = await res.json();
         const vals = new Set<string>(
           (data?.items || []).map((it: { value: string }) => it.value)
@@ -53,14 +65,52 @@ export default function SpeakingContent() {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    const updateVoices = () => {
+      try {
+        const list = speechSynthesis.getVoices();
+        const enVoices = list.filter((v) => v.lang && v.lang.startsWith("en"));
+        setVoices(enVoices);
+      } catch {}
+    };
+    updateVoices();
+    const id = setInterval(() => {
+      const list = speechSynthesis.getVoices();
+      if (list && list.length) {
+        updateVoices();
+        clearInterval(id);
+      }
+    }, 250);
+    return () => clearInterval(id);
+  }, []);
+
   const speakText = (text: string) => {
     try {
       const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = "en-US";
+      utter.lang = voiceLang;
+      const v =
+        voices.find((vv) => vv.lang === voiceLang) ||
+        voices.find((vv) => vv.lang?.startsWith("en"));
+      if (v) utter.voice = v;
+      utter.rate = 1.0;
+      utter.pitch = 1.0;
       speechSynthesis.cancel();
       speechSynthesis.speak(utter);
     } catch {}
   };
+
+  useEffect(() => {
+    if (!autoSpeak || !messages.length) return;
+    const last = messages[messages.length - 1];
+    if (
+      last?.role === "assistant" &&
+      last.content &&
+      last.content !== lastSpokenRef.current
+    ) {
+      lastSpokenRef.current = last.content;
+      speakText(last.content);
+    }
+  }, [messages, autoSpeak]);
 
   const handleCopy = async (text: string) => {
     try {
@@ -69,7 +119,7 @@ export default function SpeakingContent() {
   };
 
   const handleBookmark = async () => {
-    if (bookmarked) return; // tránh duplicate
+    if (bookmarked) return;
     try {
       const res = await fetch("/api/bookmarks", {
         method: "POST",
@@ -93,7 +143,7 @@ export default function SpeakingContent() {
   };
 
   const handleSave = async (value: string, kind: string = "phrase") => {
-    if (savedValues.has(value)) return; // tránh duplicate
+    if (savedValues.has(value)) return;
     try {
       const res = await fetch("/api/saved", {
         method: "POST",
@@ -123,16 +173,21 @@ export default function SpeakingContent() {
     addMessage({ role: "user", content: text });
     setLoading(true);
     try {
+      const controller = new AbortController();
+      chatControllerRef.current = controller;
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userText: text }),
+        signal: controller.signal,
       });
       const data = await res.json();
       const reply = data.reply || "Okay.";
-      addMessage({ role: "assistant", content: reply });
-      setIPA({ ipa: data.ipa || [], tips: data.tips });
-
+      addMessage({
+        role: "assistant",
+        content: reply,
+        ipaData: { ipa: data.ipa || [], tips: data.tips },
+      });
       try {
         const hres = await fetch("/api/history", {
           method: "POST",
@@ -144,12 +199,24 @@ export default function SpeakingContent() {
           setShowLogin(true);
         }
       } catch {}
-    } catch (e) {
-      addMessage({
-        role: "assistant",
-        content: "Có lỗi khi gọi AI. Kiểm tra API key server.",
-      });
+    } catch (e: unknown) {
+      const isAbort =
+        typeof e === "object" &&
+        e !== null &&
+        (e as { name?: string }).name === "AbortError";
+      if (isAbort) {
+        addMessage({
+          role: "assistant",
+          content: "Request canceled. You can continue speaking.",
+        });
+      } else {
+        addMessage({
+          role: "assistant",
+          content: "Error calling AI. Check the server API key.",
+        });
+      }
     } finally {
+      chatControllerRef.current = null;
       setLoading(false);
     }
   }
@@ -207,7 +274,7 @@ export default function SpeakingContent() {
           <button
             onClick={() => router.push("/")}
             className="h-9 w-9 grid place-items-center rounded-full border border-black/10 bg-white shadow-[4px_4px_0px_#00000015] transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
-            title="Trở về Trang chủ"
+            title="Back to Home"
           >
             <span className="text-lg">◀</span>
           </button>
@@ -232,19 +299,35 @@ export default function SpeakingContent() {
         />
         <div className="flex-1">
           <div className="text-base font-semibold">{heroTitle}</div>
-          <div className="text-xs text-neutral-600">Chủ đề đang luyện nói</div>
+          <div className="text-xs text-neutral-600">Current speaking topic</div>
           <div className="mt-2 flex items-center gap-2">
             <button
               onClick={() => speakText(heroTitle)}
               className="h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[4px_4px_0px_#00000015] transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
-              title="Đọc to"
+              title="Speak aloud"
             >
               <Volume2 className="h-4 w-4" />
             </button>
             <button
+              onClick={() => setAutoSpeak((v) => !v)}
+              className="px-3 h-8 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-xs transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
+              title="Auto speak replies"
+            >
+              {autoSpeak ? "Auto: On" : "Auto: Off"}
+            </button>
+            <button
+              onClick={() =>
+                setVoiceLang((v) => (v === "en-US" ? "en-GB" : "en-US"))
+              }
+              className="px-3 h-8 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-xs transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
+              title="Toggle US/UK voice"
+            >
+              {voiceLang === "en-US" ? "Voice: US" : "Voice: UK"}
+            </button>
+            <button
               onClick={handleBookmark}
               disabled={bookmarked}
-              title={bookmarked ? "Đã bookmark" : "Bookmark"}
+              title={bookmarked ? "Bookmarked" : "Bookmark"}
               className={`px-3 h-8 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-xs transition-transform duration-200 ${
                 bookmarked
                   ? "opacity-60 cursor-not-allowed"
@@ -264,7 +347,7 @@ export default function SpeakingContent() {
 
       {/* Chat */}
       <div className="bg-white p-5 rounded-2xl border border-black/10 shadow-md">
-        <div className="mb-3 text-sm text-neutral-500">Cuộc hội thoại</div>
+        <div className="mb-3 text-sm text-neutral-500">Conversation</div>
         <div className="space-y-3">
           {messages.map((m, i) => (
             <div
@@ -284,7 +367,7 @@ export default function SpeakingContent() {
                     <button
                       onClick={() => speakText(m.content)}
                       className="h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[3px_3px_0px_#00000012] transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
-                      title="Đọc to"
+                      title="Speak aloud"
                     >
                       <Volume2 className="h-4 w-4" />
                     </button>
@@ -308,7 +391,7 @@ export default function SpeakingContent() {
                           ? "opacity-60 cursor-not-allowed"
                           : "hover:scale-[1.05] active:translate-y-px"
                       }`}
-                      title={savedValues.has(m.content) ? "Đã lưu" : "Lưu"}
+                      title={savedValues.has(m.content) ? "Saved" : "Save"}
                     >
                       {savedValues.has(m.content) ? (
                         <Bookmark className="h-4 w-4" />
@@ -318,10 +401,10 @@ export default function SpeakingContent() {
                     </button>
                   </div>
 
-                  {m.role === "assistant" && ipa?.ipa?.length ? (
+                  {m.role === "assistant" && m.ipaData?.ipa?.length ? (
                     <div className="flex-1 min-w-0 max-h-24 overflow-y-auto">
                       <div className="flex flex-wrap gap-2">
-                        {ipa.ipa.map((w, idx) => (
+                        {m.ipaData.ipa.map((w, idx) => (
                           <span
                             key={idx}
                             className="px-2 py-1 rounded-full bg-neutral-100 border border-black/10 text-xs whitespace-nowrap"
@@ -341,19 +424,33 @@ export default function SpeakingContent() {
           {loading && (
             <div className="flex justify-start animate-[fadeIn_0.2s_ease-out]">
               <div className="max-w-[70%] rounded-2xl px-3 py-2 text-sm border border-black/10 shadow-[4px_4px_0px_#00000015] bg-white">
-                <div className="flex items-center gap-1">
-                  <span
-                    className="h-2 w-2 rounded-full bg-neutral-700 animate-bounce"
-                    style={{ animationDelay: "0ms" }}
-                  />
-                  <span
-                    className="h-2 w-2 rounded-full bg-neutral-700 animate-bounce"
-                    style={{ animationDelay: "120ms" }}
-                  />
-                  <span
-                    className="h-2 w-2 rounded-full bg-neutral-700 animate-bounce"
-                    style={{ animationDelay: "240ms" }}
-                  />
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
+                    <span
+                      className="h-2 w-2 rounded-full bg-neutral-700 animate-bounce"
+                      style={{ animationDelay: "0ms" }}
+                    />
+                    <span
+                      className="h-2 w-2 rounded-full bg-neutral-700 animate-bounce"
+                      style={{ animationDelay: "120ms" }}
+                    />
+                    <span
+                      className="h-2 w-2 rounded-full bg-neutral-700 animate-bounce"
+                      style={{ animationDelay: "240ms" }}
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      try {
+                        chatControllerRef.current?.abort();
+                      } catch {}
+                      setLoading(false);
+                    }}
+                    className="px-2 h-7 rounded-full bg-white border border-black/10 shadow-[3px_3px_0px_#00000012] text-xs hover:scale-[1.02]"
+                    title="Cancel AI request"
+                  >
+                    Cancel
+                  </button>
                 </div>
               </div>
             </div>
@@ -363,14 +460,61 @@ export default function SpeakingContent() {
         {/* Voice overlay */}
         {interimTranscript && (
           <div className="mt-3 rounded-xl bg-[#e5f4ff] border border-black/10 p-3 shadow-[4px_4px_0px_#00000015] animate-[fadeIn_0.2s_ease-out]">
-            <div className="text-xs font-medium mb-1">Đang ghi âm...</div>
+            <div className="text-xs font-medium mb-1">Recording...</div>
             <div className="text-sm">{interimTranscript}</div>
           </div>
         )}
 
-        <div className="mt-4 flex items-center gap-3">
-          <MicButton listening={listening} onStart={start} onStop={stop} />
-          <div className="text-xs text-neutral-500">Nhấn để nói (English)</div>
+        <div className="mt-4 flex items-center gap-3 flex-wrap">
+          <MicButton
+            listening={listening}
+            onStart={() => {
+              if (!supported) {
+                console.warn("Browser does not support audio recording.");
+                return;
+              }
+              try {
+                speechSynthesis.cancel();
+              } catch {}
+              start({ autoStopBySilence: micMode === "toggle" });
+            }}
+            onStop={stop}
+            mode={micMode}
+          />
+          <div className="flex items-center gap-2 text-xs text-neutral-500">
+            <span>
+              {micMode === "hold" ? "Hold to speak" : "Tap to speak"} (English)
+            </span>
+            {micMode === "toggle" && (
+              <span className="text-neutral-400">
+                • Auto-stop on silence ~{(silenceMs / 1000).toFixed(1)}s
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1 rounded-full border border-black/10 bg-white shadow-[4px_4px_0px_#00000015] p-1">
+            <button
+              onClick={() => setMicMode("hold")}
+              className={`px-3 h-7 rounded-full text-xs ${
+                micMode === "hold"
+                  ? "bg-[#1093DB] text-white"
+                  : "bg-white text-neutral-700"
+              }`}
+              title="Hold-to-speak mode"
+            >
+              Hold
+            </button>
+            <button
+              onClick={() => setMicMode("toggle")}
+              className={`px-3 h-7 rounded-full text-xs ${
+                micMode === "toggle"
+                  ? "bg-[#1093DB] text-white"
+                  : "bg-white text-neutral-700"
+              }`}
+              title="Tap-once mode"
+            >
+              Toggle
+            </button>
+          </div>
         </div>
       </div>
       <LoginPrompt

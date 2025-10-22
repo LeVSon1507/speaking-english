@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const email = (body?.email || "").toString().trim().toLowerCase();
     if (!email) {
-      return NextResponse.json({ error: "Email là bắt buộc" }, { status: 400 });
+      return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
     const users = await getCollection<{
@@ -37,6 +37,6 @@ export async function POST(req: Request) {
     return res;
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
   } catch (e) {
-    return NextResponse.json({ error: "Login lỗi" }, { status: 500 });
+    return NextResponse.json({ error: "Login error" }, { status: 500 });
   }
 }

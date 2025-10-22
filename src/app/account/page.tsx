@@ -43,7 +43,7 @@ export default function AccountPage() {
 
   return (
     <div className="max-w-3xl mx-auto p-4">
-      <h1 className="text-2xl font-semibold">Tài khoản</h1>
+      <h1 className="text-2xl font-semibold">Account</h1>
 
       <div className="mt-4 rounded-2xl bg-white p-4 border border-black/10 shadow-md flex items-center gap-4">
         <Image
@@ -58,10 +58,10 @@ export default function AccountPage() {
             <div className="space-y-2">
               <div className="text-sm">Email: <span className="font-semibold">{account.email}</span></div>
               <div className="text-sm">User ID: <span className="font-mono">{account.userId}</span></div>
-              <button onClick={doLogout} className="mt-2 px-3 h-9 rounded-full border bg-white">Đăng xuất</button>
+              <button onClick={doLogout} className="mt-2 px-3 h-9 rounded-full border bg-white">Sign out</button>
             </div>
           ) : (
-            <div className="text-sm text-neutral-600">Bạn chưa đăng nhập.</div>
+            <div className="text-sm text-neutral-600">You are not signed in.</div>
           )}
         </div>
       </div>

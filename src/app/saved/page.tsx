@@ -62,7 +62,7 @@ export default function SavedPage() {
         <input
           value={newSaved}
           onChange={(e) => setNewSaved(e.target.value)}
-          placeholder="Nhập nội dung cần lưu"
+          placeholder="Enter content to save"
           className="flex-1 h-9 px-3 rounded-xl border"
         />
         <button
@@ -70,13 +70,13 @@ export default function SavedPage() {
           disabled={saving || !newSaved.trim()}
           className="px-3 h-9 rounded-full border bg-[#f6d184]"
         >
-          {saving ? "Đang lưu..." : "Lưu"}
+          {saving ? "Saving..." : "Save"}
         </button>
       </div>
 
       <div className="mt-4 space-y-3">
         {items.length === 0 ? (
-          <div className="text-sm text-neutral-600">Chưa có mục đã lưu.</div>
+          <div className="text-sm text-neutral-600">No saved items yet.</div>
         ) : (
           items.map((s, idx) => (
             <div key={idx} className="p-3 rounded-xl border">
