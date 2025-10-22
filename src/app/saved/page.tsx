@@ -1,20 +1,20 @@
 "use client";
 import { useEffect, useState } from "react";
-import LoginPrompt from "@/components/LoginPrompt";
+import { useRouter } from "next/navigation";
 
 type SavedItem = { value: string; kind?: string; createdAt: string };
 
 export default function SavedPage() {
   const [items, setItems] = useState<SavedItem[]>([]);
-  const [showLogin, setShowLogin] = useState(false);
   const [newSaved, setNewSaved] = useState("");
   const [saving, setSaving] = useState(false);
+  const router = useRouter();
 
   async function fetchSaved(signal?: AbortSignal) {
     try {
       const res = await fetch("/api/saved", { signal });
       if (res.status === 401) {
-        setShowLogin(true);
+        router.push("/account/login");
         return;
       }
       const data = await res.json();
@@ -38,7 +38,7 @@ export default function SavedPage() {
         body: JSON.stringify({ value: newSaved.trim(), kind: "custom" }),
       });
       if (res.status === 401) {
-        setShowLogin(true);
+        router.push("/account/login");
         return;
       }
       setNewSaved("");
@@ -57,7 +57,19 @@ export default function SavedPage() {
   return (
     <div className="max-w-3xl mx-auto p-4">
       <h1 className="text-2xl font-semibold">Saved</h1>
-
+      <div className="mt-4 space-y-3">
+        {items.length === 0 ? (
+          <div className="text-sm text-neutral-600">No saved items yet.</div>
+        ) : (
+          items.map((b, idx) => (
+            <div key={idx} className="p-3 rounded-xl border">
+              <div className="text-sm font-semibold">{b.value}</div>
+              {b.kind ? <div className="text-xs text-neutral-500 mt-1">{b.kind}</div> : null}
+              <div className="text-xs text-neutral-500 mt-1">{new Date(b.createdAt).toLocaleString()}</div>
+            </div>
+          ))
+        )}
+      </div>
       <div className="mt-4 flex gap-2">
         <input
           value={newSaved}
@@ -73,21 +85,6 @@ export default function SavedPage() {
           {saving ? "Saving..." : "Save"}
         </button>
       </div>
-
-      <div className="mt-4 space-y-3">
-        {items.length === 0 ? (
-          <div className="text-sm text-neutral-600">No saved items yet.</div>
-        ) : (
-          items.map((s, idx) => (
-            <div key={idx} className="p-3 rounded-xl border">
-              <div className="text-sm">{s.value}</div>
-              <div className="text-xs text-neutral-500 mt-1">{new Date(s.createdAt).toLocaleString()}</div>
-            </div>
-          ))
-        )}
-      </div>
-
-      <LoginPrompt open={showLogin} onClose={() => setShowLogin(false)} onSuccess={fetchSaved} />
     </div>
   );
 }

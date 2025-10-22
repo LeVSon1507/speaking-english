@@ -6,12 +6,9 @@ import { useAppStore } from "@/store/useAppStore";
 import { useSearchParams, useRouter } from "next/navigation";
 import MicButton from "@/components/MicButton";
 import { useSpeechRecognition } from "@/hooks/useSpeech";
-import LoginPrompt from "@/components/LoginPrompt";
 
-type RetryAction =
-  | { type: "bookmark"; payload: string }
-  | { type: "history"; payload: { text: string; reply: string } }
-  | { type: "saved"; payload: { value: string; kind: string } };
+
+
 
 export default function SpeakingContent() {
   const router = useRouter();
@@ -24,12 +21,12 @@ export default function SpeakingContent() {
     start,
     stop,
     silenceMs,
+    error,
   } = useSpeechRecognition();
   const { messages, clearConversation, addMessage } = useAppStore();
 
   const [loading, setLoading] = useState(false);
-  const [showLogin, setShowLogin] = useState(false);
-  const [retryAction, setRetryAction] = useState<RetryAction | null>(null);
+
   const [bookmarked, setBookmarked] = useState(false);
   const [savedValues, setSavedValues] = useState<Set<string>>(new Set());
   const [autoSpeak, setAutoSpeak] = useState(true);
@@ -38,8 +35,13 @@ export default function SpeakingContent() {
   const [micMode, setMicMode] = useState<"hold" | "toggle">("hold");
   const lastSpokenRef = useRef<string | null>(null);
   const chatControllerRef = useRef<AbortController | null>(null);
+  const [hydrated, setHydrated] = useState(false);
 
   const topic = params.get("topic") || "Greetings and self-introduction";
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   useEffect(() => {
     try {
@@ -127,8 +129,7 @@ export default function SpeakingContent() {
         body: JSON.stringify({ topic }),
       });
       if (res.status === 401) {
-        setRetryAction({ type: "bookmark", payload: topic });
-        setShowLogin(true);
+        router.push("/account/login");
         return;
       }
       const raw = localStorage.getItem("my_vocab");
@@ -151,8 +152,7 @@ export default function SpeakingContent() {
         body: JSON.stringify({ value, kind }),
       });
       if (res.status === 401) {
-        setRetryAction({ type: "saved", payload: { value, kind } });
-        setShowLogin(true);
+        router.push("/account/login");
         return;
       }
       setSavedValues((prev) => {
@@ -195,8 +195,8 @@ export default function SpeakingContent() {
           body: JSON.stringify({ userText: text, replyText: reply }),
         });
         if (hres.status === 401) {
-          setRetryAction({ type: "history", payload: { text, reply } });
-          setShowLogin(true);
+          router.push("/account/login");
+          return;
         }
       } catch {}
     } catch (e: unknown) {
@@ -219,47 +219,6 @@ export default function SpeakingContent() {
       chatControllerRef.current = null;
       setLoading(false);
     }
-  }
-
-  function handleLoginSuccess() {
-    if (!retryAction) return;
-    if (retryAction.type === "bookmark") {
-      void fetch("/api/bookmarks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: retryAction.payload }),
-      });
-      try {
-        const raw = localStorage.getItem("my_vocab");
-        const list = raw ? JSON.parse(raw) : [];
-        const next = [topic, ...list.filter((t: string) => t !== topic)].slice(
-          0,
-          100
-        );
-        localStorage.setItem("my_vocab", JSON.stringify(next));
-      } catch {}
-      setBookmarked(true);
-    } else if (retryAction.type === "history") {
-      const { text, reply } = retryAction.payload || {};
-      void fetch("/api/history", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userText: text, replyText: reply }),
-      });
-    } else if (retryAction.type === "saved") {
-      const { value, kind } = retryAction.payload;
-      void fetch("/api/saved", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value, kind }),
-      });
-      setSavedValues((prev) => {
-        const next = new Set(prev);
-        next.add(value);
-        return next;
-      });
-    }
-    setRetryAction(null);
   }
 
   const heroTitle = useMemo(() => {
@@ -346,7 +305,7 @@ export default function SpeakingContent() {
       </div>
 
       {/* Chat */}
-      <div className="bg-white p-5 rounded-2xl border border-black/10 shadow-md">
+      <div className="relative bg-white p-5 pb-24 rounded-2xl border border-black/10 shadow-md">
         <div className="mb-3 text-sm text-neutral-500">Conversation</div>
         <div className="space-y-3">
           {messages.map((m, i) => (
@@ -459,30 +418,48 @@ export default function SpeakingContent() {
 
         {/* Voice overlay */}
         {interimTranscript && (
-          <div className="mt-3 rounded-xl bg-[#e5f4ff] border border-black/10 p-3 shadow-[4px_4px_0px_#00000015] animate-[fadeIn_0.2s_ease-out]">
+          <div className="absolute top-3 left-3 right-3 rounded-xl bg-[#e5f4ff] border border-black/10 p-3 shadow-[4px_4px_0px_#00000015] animate-[fadeIn_0.2s_ease-out] pointer-events-none max-h-24 overflow-y-auto z-10">
             <div className="text-xs font-medium mb-1">Recording...</div>
             <div className="text-sm">{interimTranscript}</div>
           </div>
         )}
 
-        <div className="mt-4 flex items-center gap-3 flex-wrap">
-          <MicButton
-            listening={listening}
-            onStart={() => {
-              if (!supported) {
-                console.warn("Browser does not support audio recording.");
-                return;
-              }
-              try {
-                speechSynthesis.cancel();
-              } catch {}
-              start({ autoStopBySilence: micMode === "toggle" });
-            }}
-            onStop={stop}
-            mode={micMode}
-          />
-          <div className="flex items-center gap-2 text-xs text-neutral-500">
-            <span>
+        {/* Mic warning banner */}
+        {(() => {
+          const canFallback =
+            typeof navigator !== "undefined" &&
+            typeof navigator.mediaDevices?.getUserMedia === "function" &&
+            typeof MediaRecorder !== "undefined";
+          const showBanner = hydrated && ((error && error.length > 0) || (!supported && !canFallback));
+          return showBanner ? (
+            <div className="mt-3 rounded-xl bg-[#fff4e5] border border-[#f59e0b] p-3 shadow-[4px_4px_0px_#00000015]">
+              <div className="text-sm font-semibold text-[#7c2d12]">Microphone issue</div>
+              <div className="text-xs text-[#7c2d12] mt-1">
+                {error || "Microphone is not supported in this browser."}
+              </div>
+              <div className="text-xs text-[#9a3412] mt-1">
+                Hint: Use a browser that supports Web Speech or fallback recording.
+              </div>
+            </div>
+          ) : null;
+        })()}
+
+        <div className="absolute bottom-5 left-5 right-5 flex items-center gap-3">
+          <div className="shrink-0">
+            <MicButton
+              listening={listening}
+              onStart={() => {
+                try {
+                  speechSynthesis.cancel();
+                } catch {}
+                start({ autoStopBySilence: micMode === "toggle" });
+              }}
+              onStop={stop}
+              mode={micMode}
+            />
+          </div>
+          <div className="flex-1 min-w-0 flex items-center gap-2 text-xs text-neutral-500">
+            <span className="truncate">
               {micMode === "hold" ? "Hold to speak" : "Tap to speak"} (English)
             </span>
             {micMode === "toggle" && (
@@ -491,7 +468,7 @@ export default function SpeakingContent() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1 rounded-full border border-black/10 bg-white shadow-[4px_4px_0px_#00000015] p-1">
+          <div className="shrink-0 flex items-center gap-1 rounded-full border border-black/10 bg-white shadow-[4px_4px_0px_#00000015] p-1">
             <button
               onClick={() => setMicMode("hold")}
               className={`px-3 h-7 rounded-full text-xs ${
@@ -517,11 +494,8 @@ export default function SpeakingContent() {
           </div>
         </div>
       </div>
-      <LoginPrompt
-        open={showLogin}
-        onClose={() => setShowLogin(false)}
-        onSuccess={handleLoginSuccess}
-      />
+
+      {/* Login modal removed. Unauthenticated actions redirect to /account/login. */}
     </div>
   );
 }

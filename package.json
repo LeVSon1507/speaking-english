@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@google-cloud/speech": "^7.2.1",
     "@google/generative-ai": "^0.24.1",
     "ai": "^5.0.76",
     "framer-motion": "^12.23.24",

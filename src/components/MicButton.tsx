@@ -93,7 +93,7 @@ export default function MicButton({
             }
           : undefined
       }
-      className={`h-16 w-16 rounded-full bg-[#1093DB] text-white border border-black/10 shadow-[6px_6px_0px_#00000020] transition active:translate-y-[2px] ${
+      className={`h-16 w-16 rounded-full bg-[#1093DB] text-white border border-black/10 shadow-[6px_6px_0px_#00000020] transition-transform duration-200 hover:scale-[1.05] ${
         listening ? "animate-pulse bg-red-500" : ""
       }`}
       title={

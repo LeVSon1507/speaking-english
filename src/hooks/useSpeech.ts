@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// Minimal Web Speech API typings to avoid 'any'
 export type RecognitionCtor = new () => SpeechRecognitionLike;
 export interface SpeechRecognitionEventLike {
   resultIndex: number;
@@ -51,6 +50,26 @@ export function useSpeechRecognition() {
   const silenceTimerRef = useRef<number | null>(null);
   const SILENCE_MS = 1200;
   const autoStopBySilenceRef = useRef<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fallback recording to server STT when native is unsupported
+  const [mode, setMode] = useState<"native" | "server">("native");
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const mimeRef = useRef<string>("");
+
+  useEffect(() => {
+    const canMediaRecord =
+      typeof navigator !== "undefined" &&
+      typeof navigator.mediaDevices?.getUserMedia === "function" &&
+      typeof MediaRecorder !== "undefined";
+    if (!supported && canMediaRecord) {
+      setMode("server");
+    } else {
+      setMode("native");
+    }
+  }, [supported]);
 
   useEffect(() => {
     if (!supported || !SpeechRecognitionCtor) return;
@@ -90,9 +109,15 @@ export function useSpeechRecognition() {
       }
     };
 
-    rec.onerror = () => {
+    rec.onerror = (e: Event) => {
       setListening(false);
       setInterimTranscript("");
+      const ev = e as unknown as { error?: string; message?: string };
+      let msg = "Microphone error";
+      if (ev?.error === "not-allowed") msg = "Microphone permission denied";
+      else if (ev?.error === "audio-capture") msg = "Microphone not found";
+      else if (typeof ev?.message === "string" && ev.message) msg = ev.message;
+      setError(msg);
       if (silenceTimerRef.current != null) {
         clearInterval(silenceTimerRef.current);
         silenceTimerRef.current = null;
@@ -113,51 +138,155 @@ export function useSpeechRecognition() {
   }, [SpeechRecognitionCtor, supported]);
 
   const start = useCallback(
-    (opts?: { autoStopBySilence?: boolean }) => {
-      if (!supported || !recognitionRef.current) return;
+    async (opts?: { autoStopBySilence?: boolean }) => {
       const now = Date.now();
       if (now - lastActionTsRef.current < 300) return;
       lastActionTsRef.current = now;
       if (listening) return;
-      // Configure auto-stop behavior per mode
-      autoStopBySilenceRef.current = opts?.autoStopBySilence ?? true;
       setTranscript("");
       setInterimTranscript("");
-      setListening(true);
-      hasFirstResultRef.current = false;
-      lastSpeechTsRef.current = 0;
-      try {
-        recognitionRef.current.start();
-      } catch {
-        /* noop */
+      setError(null);
+
+      if (mode === "native") {
+        if (!supported || !recognitionRef.current) return;
+        // Configure auto-stop behavior per mode
+        autoStopBySilenceRef.current = opts?.autoStopBySilence ?? true;
+        setListening(true);
+        hasFirstResultRef.current = false;
+        lastSpeechTsRef.current = 0;
+        try {
+          recognitionRef.current.start();
+        } catch (e) {
+          const ev = e as unknown as { message?: string };
+          setError(ev?.message || "Failed to start microphone");
+          setListening(false);
+        }
+      } else {
+        try {
+          if (
+            typeof navigator === "undefined" ||
+            typeof navigator.mediaDevices?.getUserMedia !== "function"
+          ) {
+            setError("Microphone access is not available");
+            return;
+          }
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          streamRef.current = stream;
+          let mime = "audio/webm;codecs=opus";
+          if (typeof MediaRecorder !== "undefined" && !MediaRecorder.isTypeSupported(mime)) {
+            mime = "audio/ogg;codecs=opus";
+          }
+          mimeRef.current = mime;
+          const rec = new MediaRecorder(stream, { mimeType: mime });
+          chunksRef.current = [];
+          rec.ondataavailable = (e: BlobEvent) => {
+            if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+          };
+          rec.onstop = () => {
+            setInterimTranscript("");
+          };
+          recorderRef.current = rec;
+          setListening(true);
+          setInterimTranscript("Recording...");
+          rec.start();
+        } catch (e) {
+          const ev = e as unknown as { message?: string };
+          setError(ev?.message || "Failed to start microphone");
+          setListening(false);
+        }
       }
     },
-    [supported, listening]
+    [supported, listening, mode]
   );
 
   const stop = useCallback(() => {
-    if (!supported || !recognitionRef.current) return;
     const now = Date.now();
     if (now - lastActionTsRef.current < 300) return; // debounce
     lastActionTsRef.current = now;
-    setListening(false);
-    try {
-      recognitionRef.current.stop();
-    } catch {
-      /* noop */
+
+    if (mode === "native") {
+      if (!supported || !recognitionRef.current) return;
+      setListening(false);
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        /* noop */
+      }
+    } else {
+      const rec = recorderRef.current;
+      if (!rec) {
+        setListening(false);
+        setInterimTranscript("");
+        return;
+      }
+      rec.onstop = async () => {
+        try {
+          const blob = new Blob(chunksRef.current, { type: mimeRef.current || "audio/webm" });
+          chunksRef.current = [];
+          recorderRef.current = null;
+          // Stop tracks
+          streamRef.current?.getTracks()?.forEach((t) => t.stop());
+          streamRef.current = null;
+
+          const res = await fetch("/api/stt", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/octet-stream",
+              "X-Mime-Type": blob.type || "audio/webm",
+              "X-Language": "en-US",
+            },
+            body: blob,
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            setError(data?.error || "Speech-to-Text failed");
+            setListening(false);
+            setInterimTranscript("");
+            return;
+          }
+          const text = (data?.transcript || "").trim();
+          setTranscript(text);
+          setInterimTranscript("");
+          setListening(false);
+        } catch (e) {
+          const ev = e as unknown as { message?: string };
+          setError(ev?.message || "Failed to process audio");
+          setListening(false);
+          setInterimTranscript("");
+        }
+      };
+      try {
+        rec.stop();
+      } catch {
+        setListening(false);
+        setInterimTranscript("");
+      }
     }
-  }, [supported]);
+  }, [supported, mode]);
 
   const abort = useCallback(() => {
-    if (!supported || !recognitionRef.current) return;
-    setListening(false);
-    setInterimTranscript("");
-    try {
-      recognitionRef.current.abort();
-    } catch {
-      /* noop */
+    if (mode === "native") {
+      if (!supported || !recognitionRef.current) return;
+      setListening(false);
+      setInterimTranscript("");
+      try {
+        recognitionRef.current.abort();
+      } catch {
+        /* noop */
+      }
+    } else {
+      try {
+        recorderRef.current?.stop();
+      } catch {
+        /* noop */
+      }
+      setListening(false);
+      setInterimTranscript("");
+      streamRef.current?.getTracks()?.forEach((t) => t.stop());
+      streamRef.current = null;
+      chunksRef.current = [];
     }
-  }, [supported]);
+  }, [supported, mode]);
 
   useEffect(() => {
     if (!supported) return;
@@ -193,6 +322,7 @@ export function useSpeechRecognition() {
   const reset = useCallback(() => {
     setTranscript("");
     setInterimTranscript("");
+    setError(null);
   }, []);
 
   return {
@@ -205,6 +335,7 @@ export function useSpeechRecognition() {
     abort,
     reset,
     silenceMs: SILENCE_MS,
+    error,
   };
 }
 

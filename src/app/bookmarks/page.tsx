@@ -1,18 +1,18 @@
 "use client";
 import { useEffect, useState } from "react";
-import LoginPrompt from "@/components/LoginPrompt";
+import { useRouter } from "next/navigation";
 
 type BookmarkItem = { topic: string; createdAt: string };
 
 export default function BookmarksPage() {
   const [items, setItems] = useState<BookmarkItem[]>([]);
-  const [showLogin, setShowLogin] = useState(false);
+  const router = useRouter();
 
   async function fetchBookmarks(signal?: AbortSignal) {
     try {
       const res = await fetch("/api/bookmarks", { signal });
       if (res.status === 401) {
-        setShowLogin(true);
+        router.push("/account/login");
         return;
       }
       const data = await res.json();
@@ -46,8 +46,6 @@ export default function BookmarksPage() {
           ))
         )}
       </div>
-
-      <LoginPrompt open={showLogin} onClose={() => setShowLogin(false)} onSuccess={fetchBookmarks} />
     </div>
   );
 }
