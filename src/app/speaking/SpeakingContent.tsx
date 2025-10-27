@@ -1,11 +1,11 @@
 "use client";
 import Image from "next/image";
 import { useEffect, useMemo, useState, useRef } from "react";
-import { Copy, Bookmark, Volume2, BookmarkPlus } from "lucide-react";
-import { useAppStore } from "@/store/useAppStore";
+import { Copy, Bookmark, Volume2, BookmarkPlus, Check } from "lucide-react";
+import { useAppStore, type Message } from "@/store/useAppStore";
 import { useSearchParams, useRouter } from "next/navigation";
 import MicButton from "@/components/MicButton";
-import { useSpeechRecognition } from "@/hooks/useSpeech";
+import { useSpeechRecognition, speak } from "@/hooks/useSpeech";
 import LoginPrompt from "@/components/LoginPrompt";
 
 export default function SpeakingContent() {
@@ -21,7 +21,7 @@ export default function SpeakingContent() {
     silenceMs,
     error,
   } = useSpeechRecognition();
-  const { messages, clearConversation, addMessage } = useAppStore();
+  const { messages, clearConversation, addMessage, setMessages } = useAppStore();
 
   const [loading, setLoading] = useState(false);
 
@@ -29,19 +29,68 @@ export default function SpeakingContent() {
   const [savedValues, setSavedValues] = useState<Set<string>>(new Set());
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [voiceLang, setVoiceLang] = useState<"en-US" | "en-GB">("en-US");
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [micMode, setMicMode] = useState<"hold" | "toggle">("hold");
+  const [copiedValue, setCopiedValue] = useState<string | null>(null);
   const lastSpokenRef = useRef<string | null>(null);
   const chatControllerRef = useRef<AbortController | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [isAuth, setIsAuth] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
+  const hasLoadedForTopicRef = useRef<boolean>(false);
 
   const topic = params.get("topic") || "Greetings and self-introduction";
 
   useEffect(() => {
     setHydrated(true);
   }, []);
+
+  // Load conversation per topic from localStorage when topic changes
+  useEffect(() => {
+    if (!hydrated) return;
+    hasLoadedForTopicRef.current = false;
+    lastSpokenRef.current = null;
+    const key = `conv:${encodeURIComponent(topic)}`;
+    try {
+      const raw = localStorage.getItem(key);
+      const initial: Message[] = [
+        {
+          role: "assistant",
+          content:
+            "Hello! Tap the mic to speak. I will prompt and give IPA tips.",
+        },
+      ];
+      if (raw) {
+        const loaded = JSON.parse(raw) as Message[];
+        if (Array.isArray(loaded) && loaded.length) {
+          setMessages(loaded);
+        } else {
+          setMessages(initial);
+        }
+      } else {
+        setMessages(initial);
+      }
+    } catch {
+      setMessages([
+        {
+          role: "assistant",
+          content:
+            "Hello! Tap the mic to speak. I will prompt and give IPA tips.",
+        },
+      ]);
+    }
+    hasLoadedForTopicRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topic, hydrated]);
+
+  // Persist conversation per topic
+  useEffect(() => {
+    if (!hydrated || !hasLoadedForTopicRef.current) return;
+    try {
+      const key = `conv:${encodeURIComponent(topic)}`;
+      localStorage.setItem(key, JSON.stringify(messages));
+    } catch {}
+  }, [messages, topic, hydrated]);
 
   // Check auth status
   useEffect(() => {
@@ -83,37 +132,11 @@ export default function SpeakingContent() {
     return () => controller.abort();
   }, []);
 
-  useEffect(() => {
-    const updateVoices = () => {
-      try {
-        const list = speechSynthesis.getVoices();
-        const enVoices = list.filter((v) => v.lang && v.lang.startsWith("en"));
-        setVoices(enVoices);
-      } catch {}
-    };
-    updateVoices();
-    const id = setInterval(() => {
-      const list = speechSynthesis.getVoices();
-      if (list && list.length) {
-        updateVoices();
-        clearInterval(id);
-      }
-    }, 250);
-    return () => clearInterval(id);
-  }, []);
+  // voices handled by speak() from hook; no local voice list needed
 
   const speakText = (text: string) => {
     try {
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = voiceLang;
-      const v =
-        voices.find((vv) => vv.lang === voiceLang) ||
-        voices.find((vv) => vv.lang?.startsWith("en"));
-      if (v) utter.voice = v;
-      utter.rate = 1.0;
-      utter.pitch = 1.0;
-      speechSynthesis.cancel();
-      speechSynthesis.speak(utter);
+      speak(text, voiceLang);
     } catch {}
   };
 
@@ -130,9 +153,18 @@ export default function SpeakingContent() {
     }
   }, [messages, autoSpeak]);
 
+  useEffect(() => {
+    // Auto-scroll to the latest message
+    try {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    } catch {}
+  }, [messages, loading]);
+
   const handleCopy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
+      setCopiedValue(text);
+      window.setTimeout(() => setCopiedValue(null), 1200);
     } catch {}
   };
 
@@ -221,6 +253,7 @@ export default function SpeakingContent() {
           userText: text,
           provider: "gemini",
           model: "gemini-2.0-flash-001",
+          topic,
         }),
         signal: controller.signal,
       });
@@ -281,7 +314,16 @@ export default function SpeakingContent() {
           <span className="text-sm text-neutral-500">Speaking</span>
         </div>
         <button
-          onClick={() => clearConversation()}
+          onClick={() => {
+            try {
+              const hasHistory = messages.length > 1;
+              if (!hasHistory || window.confirm("Xóa hội thoại hiện tại?")) {
+                clearConversation();
+              }
+            } catch {
+              clearConversation();
+            }
+          }}
           className="px-3 h-9 rounded-full bg-white border border-black/10 shadow-[4px_4px_0px_#00000015] text-sm transition-colors duration-200 hover:bg-neutral-50 hover:scale-[1.02] active:translate-y-px"
         >
           Clear conversation
@@ -373,9 +415,13 @@ export default function SpeakingContent() {
                     <button
                       onClick={() => handleCopy(m.content)}
                       className="h-8 w-8 grid place-items-center rounded-full border border-black/10 bg-white shadow-[3px_3px_0px_#00000012] transition-transform duration-200 hover:scale-[1.05] active:translate-y-px"
-                      title="Copy"
+                      title={copiedValue === m.content ? "Copied" : "Copy"}
                     >
-                      <Copy className="h-4 w-4" />
+                      {copiedValue === m.content ? (
+                        <Check className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
                     </button>
                     <button
                       onClick={() =>
@@ -458,11 +504,19 @@ export default function SpeakingContent() {
           )}
         </div>
 
-        {/* Voice overlay */}
+        {/* Auto-scroll sentinel */}
+        <div ref={bottomRef} />
+
+        {/* Voice overlay banner */}
         {interimTranscript && (
-          <div className="absolute top-3 left-3 right-3 rounded-xl bg-[#e5f4ff] border border-black/10 p-3 shadow-[4px_4px_0px_#00000015] animate-[fadeIn_0.2s_ease-out] pointer-events-none max-h-24 overflow-y-auto z-10">
-            <div className="text-xs font-medium mb-1">Recording...</div>
-            <div className="text-sm">{interimTranscript}</div>
+          <div
+            aria-live="polite"
+            className="absolute bottom-20 left-5 right-5 rounded-full bg-white/80 backdrop-blur-sm border border-black/10 px-4 py-2 shadow-[4px_4px_0px_#00000015] animate-[fadeIn_0.2s_ease-out] pointer-events-none z-20"
+          >
+            <div className="flex items-center gap-2">
+              <div className="text-xs font-medium">Recording...</div>
+              <div className="text-sm truncate">{interimTranscript}</div>
+            </div>
           </div>
         )}
 

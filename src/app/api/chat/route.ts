@@ -75,14 +75,18 @@ export async function POST(req: NextRequest) {
       provider = "gemini",
       model = "gemini-2.0-flash-001",
       history = [],
+      topic = "",
     } = await req.json();
 
     if (!userText || typeof userText !== "string") {
       return NextResponse.json({ error: "Missing userText" }, { status: 400 });
     }
 
+    const topicLine = topic
+      ? `\nCurrent topic: ${topic}. Keep the conversation within this topic.`
+      : "";
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: `${systemPrompt}${topicLine}` },
       ...history,
       { role: "user", content: userText },
     ];
@@ -114,7 +118,7 @@ export async function POST(req: NextRequest) {
         );
       const genAI = new GoogleGenerativeAI(key);
       const modelGemini = genAI.getGenerativeModel({ model });
-      const prompt = `${systemPrompt}\nUser: ${userText}`;
+      const prompt = `${systemPrompt}${topicLine}\nUser: ${userText}`;
       const result = await modelGemini.generateContent(prompt);
       const text = result.response.text() || "";
       const parsed = parseResponseToSchema(text);

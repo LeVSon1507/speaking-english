@@ -15,6 +15,7 @@ type AppState = {
   setApiKey: (k: string) => void
   setModel: (m: string) => void
   addMessage: (m: Message) => void
+  setMessages: (msgs: Message[]) => void
   setIPA: (d?: { ipa: IPAItem[], tips?: string }) => void
   incTurns: () => void
   clearConversation: () => void
@@ -31,6 +32,7 @@ export const useAppStore = create<AppState>((set) => ({
   setApiKey: (k) => set({ apiKey: k }),
   setModel: (m) => set({ model: m }),
   addMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
+  setMessages: (msgs) => set({ messages: msgs }),
   setIPA: (d) => set({ ipa: d }),
   incTurns: () => set((s) => ({ turns: s.turns + 1 })),
   clearConversation: () => set({ messages: [{ role: 'assistant', content: "Conversation cleared. Let's start again!" }], ipa: undefined, turns: 0 }),

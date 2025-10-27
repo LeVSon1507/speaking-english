@@ -339,21 +339,20 @@ export function useSpeechRecognition() {
   };
 }
 
-export function speak(text: string) {
+export function speak(text: string, lang: string = "en-US") {
   if (typeof window === "undefined") return;
   const synth = window.speechSynthesis;
   if (!synth) return;
   const utter = new SpeechSynthesisUtterance(text);
-  utter.lang = "en-US";
+  utter.lang = lang || "en-US";
   utter.rate = 1;
   utter.pitch = 1;
   const voices = synth.getVoices();
-  const enVoice =
-    voices.find(
-      (v) =>
-        v.lang?.startsWith?.("en") && v.name?.toLowerCase?.().includes("female")
-    ) || voices.find((v) => v.lang?.startsWith?.("en"));
-  if (enVoice) utter.voice = enVoice;
+  const preferred =
+    voices.find((v) => v.lang === lang) ||
+    voices.find((v) => v.lang?.startsWith?.(lang.split("-")[0])) ||
+    voices.find((v) => v.lang?.startsWith?.("en"));
+  if (preferred) utter.voice = preferred;
   // Avoid overlapping speech
   if (synth.speaking) synth.cancel();
   synth.speak(utter);
