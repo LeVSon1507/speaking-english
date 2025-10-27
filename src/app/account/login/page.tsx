@@ -26,11 +26,11 @@ export default function LoginPage() {
 
   const isValid = () => {
     if (!username || username.trim().length < 3) {
-      setError("Tên đăng nhập phải có ít nhất 3 ký tự");
+      setError("Username must be at least 3 characters");
       return false;
     }
     if (!password || password.length < 8) {
-      setError("Mật khẩu phải có ít nhất 8 ký tự");
+      setError("Password must be at least 8 characters");
       return false;
     }
     return true;
@@ -50,12 +50,12 @@ export default function LoginPage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data?.error || "Đăng nhập thất bại");
+        setError(data?.error || "Login failed");
         return;
       }
       router.push("/account");
     } catch {
-      setError("Lỗi mạng, vui lòng thử lại");
+      setError("Network error, please try again");
     } finally {
       setLoading(false);
     }
@@ -64,14 +64,14 @@ export default function LoginPage() {
   return (
     <div className="min-h-dvh max-w-[420px] mx-auto px-6 py-10">
       <div className="rounded-2xl bg-white p-5 border border-black/10 shadow-md">
-        <h1 className="text-xl font-semibold">Đăng nhập</h1>
+        <h1 className="text-xl font-semibold">Sign In</h1>
         <p className="text-xs text-neutral-600 mt-1">
-          Sử dụng tên đăng nhập và mật khẩu để tiếp tục.
+          Use your username and password to continue.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-3">
           <div>
-            <label className="text-xs text-neutral-700">Tên đăng nhập</label>
+            <label className="text-xs text-neutral-700">Username</label>
             <input
               type="text"
               className="w-full h-10 px-3 rounded-xl border border-black/15 bg-white outline-none text-sm"
@@ -83,7 +83,7 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="text-xs text-neutral-700">Mật khẩu</label>
+            <label className="text-xs text-neutral-700">Password</label>
             <div className="flex items-center gap-2">
               <input
                 type={showPassword ? "text" : "password"}
@@ -97,9 +97,9 @@ export default function LoginPage() {
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
                 className="px-3 h-10 rounded-xl border border-black/15 bg-white text-xs shadow-[3px_3px_0px_#00000012]"
-                title={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                title={showPassword ? "Hide password" : "Show password"}
               >
-                {showPassword ? "Ẩn" : "Hiện"}
+                {showPassword ? "Hide" : "Show"}
               </button>
             </div>
           </div>
@@ -111,7 +111,7 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full h-10 rounded-full bg-[#f6d184] border border-black/10 shadow-[4px_4px_0px_#00000015] text-sm disabled:opacity-60"
           >
-            {loading ? "Đang xử lý..." : "Đăng nhập"}
+            {loading ? "Processing..." : "Sign In"}
           </button>
         </form>
       </div>

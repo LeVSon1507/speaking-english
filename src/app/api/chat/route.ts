@@ -6,15 +6,74 @@ const systemPrompt = `You are an English speaking coach for Vietnamese learners.
 - Reply in English with 1-2 short sentences, friendly and motivating.
 - Encourage natural conversation; always ask a light follow-up question.
 - Return ONLY valid JSON with keys: reply (string), ipa (array of {word, ipa}), tips (string in Vietnamese giving quick pronunciation advice for difficult sounds).
+- Do NOT include markdown code fences or triple backticks; return pure JSON only.
 - For ipa, infer IPA for the user's text word-by-word and include common mispronunciation notes for Vietnamese learners.
 - Keep it concise.`;
+
+// Helper to robustly parse model output into our schema
+type ChatSchema = {
+  reply: string;
+  ipa: { word: string; ipa: string }[];
+  tips: string;
+};
+
+function isWordIpa(o: unknown): o is { word: string; ipa: string } {
+  if (typeof o !== "object" || o === null) return false;
+  const t = o as { word?: unknown; ipa?: unknown };
+  return typeof t.word === "string" && typeof t.ipa === "string";
+}
+
+function parseResponseToSchema(text: string): ChatSchema {
+  const cleaned = (text || "")
+    // remove typical markdown code fences
+    .replace(/^```json\s*/i, "")
+    .replace(/```/g, "")
+    .trim();
+
+  const tryParse = (s: string): ChatSchema | null => {
+    try {
+      const obj = JSON.parse(s) as {
+        reply?: unknown;
+        ipa?: unknown;
+        tips?: unknown;
+      };
+      const ipaArr = Array.isArray(obj.ipa)
+        ? (obj.ipa as unknown[])
+            .filter(isWordIpa)
+            .map((i) => ({ word: i.word, ipa: i.ipa }))
+        : [];
+      const tipsStr = typeof obj.tips === "string" ? obj.tips : "";
+      const replyStr = typeof obj.reply === "string" ? obj.reply : cleaned;
+      return { reply: replyStr, ipa: ipaArr, tips: tipsStr };
+    } catch {
+      return null;
+    }
+  };
+
+  let parsed = tryParse(cleaned);
+  if (parsed) return parsed;
+
+  // Fallback: extract JSON object substring if present
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    const sub = cleaned.slice(start, end + 1);
+    parsed = tryParse(sub);
+    if (parsed) return parsed;
+  }
+
+  // Last resort: treat entire text as plain reply
+  return { reply: cleaned, ipa: [], tips: "" };
+}
 
 export async function POST(req: NextRequest) {
   try {
     const {
       userText,
-      provider = "openai",
-      model = "gpt-4o-mini",
+      // provider = "openai",
+      // model = "gpt-4o-mini",
+      provider = "gemini",
+      model = "gemini-2.0-flash-001",
       history = [],
     } = await req.json();
 
@@ -42,16 +101,7 @@ export async function POST(req: NextRequest) {
         temperature: 0.7,
       });
       const raw = resp.choices?.[0]?.message?.content || "";
-      let parsed: {
-        reply: string;
-        ipa: { word: string; ipa: string }[];
-        tips: string;
-      };
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        parsed = { reply: raw, ipa: [], tips: "" };
-      }
+      const parsed = parseResponseToSchema(raw);
       return NextResponse.json(parsed);
     }
 
@@ -63,21 +113,11 @@ export async function POST(req: NextRequest) {
           { status: 500 }
         );
       const genAI = new GoogleGenerativeAI(key);
-      const modelId = "gemini-1.5-flash";
-      const modelGemini = genAI.getGenerativeModel({ model: modelId });
+      const modelGemini = genAI.getGenerativeModel({ model });
       const prompt = `${systemPrompt}\nUser: ${userText}`;
       const result = await modelGemini.generateContent(prompt);
       const text = result.response.text() || "";
-      let parsed: {
-        reply: string;
-        ipa: { word: string; ipa: string }[];
-        tips: string;
-      };
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = { reply: text, ipa: [], tips: "" };
-      }
+      const parsed = parseResponseToSchema(text);
       return NextResponse.json(parsed);
     }
 

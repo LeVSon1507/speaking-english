@@ -6,9 +6,7 @@ import { useAppStore } from "@/store/useAppStore";
 import { useSearchParams, useRouter } from "next/navigation";
 import MicButton from "@/components/MicButton";
 import { useSpeechRecognition } from "@/hooks/useSpeech";
-
-
-
+import LoginPrompt from "@/components/LoginPrompt";
 
 export default function SpeakingContent() {
   const router = useRouter();
@@ -36,6 +34,8 @@ export default function SpeakingContent() {
   const lastSpokenRef = useRef<string | null>(null);
   const chatControllerRef = useRef<AbortController | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [isAuth, setIsAuth] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
 
   const topic = params.get("topic") || "Greetings and self-introduction";
 
@@ -43,6 +43,21 @@ export default function SpeakingContent() {
     setHydrated(true);
   }, []);
 
+  // Check auth status
+  useEffect(() => {
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/me", { signal: controller.signal });
+        setIsAuth(res.ok);
+      } catch {
+        setIsAuth(false);
+      }
+    })();
+    return () => controller.abort();
+  }, []);
+
+  // Update bookmark state from localStorage when topic changes
   useEffect(() => {
     try {
       const raw = localStorage.getItem("my_vocab");
@@ -51,6 +66,7 @@ export default function SpeakingContent() {
     } catch {}
   }, [topic]);
 
+  // Pull saved values when authenticated
   useEffect(() => {
     const controller = new AbortController();
     (async () => {
@@ -129,7 +145,7 @@ export default function SpeakingContent() {
         body: JSON.stringify({ topic }),
       });
       if (res.status === 401) {
-        router.push("/account/login");
+        setShowLogin(true);
         return;
       }
       const raw = localStorage.getItem("my_vocab");
@@ -152,7 +168,7 @@ export default function SpeakingContent() {
         body: JSON.stringify({ value, kind }),
       });
       if (res.status === 401) {
-        router.push("/account/login");
+        setShowLogin(true);
         return;
       }
       setSavedValues((prev) => {
@@ -162,6 +178,29 @@ export default function SpeakingContent() {
       });
     } catch {}
   };
+
+  function onLoginSuccess() {
+    setShowLogin(false);
+    // After successful login, refresh auth and saved values
+    (async () => {
+      try {
+        const me = await fetch("/api/auth/me");
+        setIsAuth(me.ok);
+      } catch {
+        setIsAuth(false);
+      }
+      try {
+        const res = await fetch("/api/saved");
+        if (res.ok) {
+          const data = await res.json();
+          const vals = new Set<string>(
+            (data?.items || []).map((it: { value: string }) => it.value)
+          );
+          setSavedValues(vals);
+        }
+      } catch {}
+    })();
+  }
 
   useEffect(() => {
     if (!listening && transcript) {
@@ -178,7 +217,11 @@ export default function SpeakingContent() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userText: text }),
+        body: JSON.stringify({
+          userText: text,
+          provider: "gemini",
+          model: "gemini-2.0-flash-001",
+        }),
         signal: controller.signal,
       });
       const data = await res.json();
@@ -188,17 +231,15 @@ export default function SpeakingContent() {
         content: reply,
         ipaData: { ipa: data.ipa || [], tips: data.tips },
       });
-      try {
-        const hres = await fetch("/api/history", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userText: text, replyText: reply }),
-        });
-        if (hres.status === 401) {
-          router.push("/account/login");
-          return;
-        }
-      } catch {}
+      if (isAuth) {
+        try {
+          await fetch("/api/history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userText: text, replyText: reply }),
+          });
+        } catch {}
+      }
     } catch (e: unknown) {
       const isAbort =
         typeof e === "object" &&
@@ -304,7 +345,6 @@ export default function SpeakingContent() {
         </div>
       </div>
 
-      {/* Chat */}
       <div className="relative bg-white p-5 pb-24 rounded-2xl border border-black/10 shadow-md">
         <div className="mb-3 text-sm text-neutral-500">Conversation</div>
         <div className="space-y-3">
@@ -367,6 +407,7 @@ export default function SpeakingContent() {
                           <span
                             key={idx}
                             className="px-2 py-1 rounded-full bg-neutral-100 border border-black/10 text-xs whitespace-nowrap"
+                            title={m.ipaData?.tips || "Pronunciation tip"}
                           >
                             {w.word} — /{w.ipa}/
                           </span>
@@ -374,6 +415,7 @@ export default function SpeakingContent() {
                       </div>
                     </div>
                   ) : null}
+                  {/* Tips block removed: tips now shown on IPA hover */}
                 </div>
               </div>
             </div>
@@ -430,15 +472,20 @@ export default function SpeakingContent() {
             typeof navigator !== "undefined" &&
             typeof navigator.mediaDevices?.getUserMedia === "function" &&
             typeof MediaRecorder !== "undefined";
-          const showBanner = hydrated && ((error && error.length > 0) || (!supported && !canFallback));
+          const showBanner =
+            hydrated &&
+            ((error && error.length > 0) || (!supported && !canFallback));
           return showBanner ? (
             <div className="mt-3 rounded-xl bg-[#fff4e5] border border-[#f59e0b] p-3 shadow-[4px_4px_0px_#00000015]">
-              <div className="text-sm font-semibold text-[#7c2d12]">Microphone issue</div>
+              <div className="text-sm font-semibold text-[#7c2d12]">
+                Microphone issue
+              </div>
               <div className="text-xs text-[#7c2d12] mt-1">
                 {error || "Microphone is not supported in this browser."}
               </div>
               <div className="text-xs text-[#9a3412] mt-1">
-                Hint: Use a browser that supports Web Speech or fallback recording.
+                Hint: Use a browser that supports Web Speech or fallback
+                recording.
               </div>
             </div>
           ) : null;
@@ -450,9 +497,8 @@ export default function SpeakingContent() {
               listening={listening}
               onStart={() => {
                 try {
-                  speechSynthesis.cancel();
+                  start();
                 } catch {}
-                start({ autoStopBySilence: micMode === "toggle" });
               }}
               onStop={stop}
               mode={micMode}
@@ -495,7 +541,11 @@ export default function SpeakingContent() {
         </div>
       </div>
 
-      {/* Login modal removed. Unauthenticated actions redirect to /account/login. */}
+      <LoginPrompt
+        open={showLogin}
+        onClose={() => setShowLogin(false)}
+        onSuccess={onLoginSuccess}
+      />
     </div>
   );
 }
